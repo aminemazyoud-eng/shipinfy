@@ -5,10 +5,10 @@ import { Building2, Store, Users, FileSpreadsheet } from 'lucide-react'
 
 export default async function DashboardPage() {
   const [nbWH, nbStores, nbContacts, nbExports] = await Promise.all([
-    prisma.warehouse.count(),
-    prisma.store.count(),
-    prisma.storeContact.count(),
-    prisma.csvExport.count(),
+    prisma.warehouse.count().catch(() => 0),
+    prisma.store.count().catch(() => 0),
+    prisma.storeContact.count().catch(() => 0),
+    prisma.csvExport.count().catch(() => 0),
   ])
 
   const cards = [

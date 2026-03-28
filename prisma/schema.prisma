@@ -1,0 +1,46 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Warehouse {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  code      String   @unique
+  createdAt DateTime @default(now())
+  stores    Store[]
+}
+
+model Store {
+  id                          String         @id @default(cuid())
+  warehouseId                 String
+  warehouse                   Warehouse      @relation(fields: [warehouseId], references: [id])
+  destinationAddress          String
+  destinationDistrict         String
+  destinationAddressLatitude  Float
+  destinationAddressLongitude Float
+  contacts                    StoreContact[]
+}
+
+model CsvExport {
+  id            String   @id @default(cuid())
+  filename      String
+  warehouseName String
+  nbTournees    Int
+  csvContent    String
+  createdAt     DateTime @default(now())
+}
+
+model StoreContact {
+  id                      String @id @default(cuid())
+  storeId                 String
+  store                   Store  @relation(fields: [storeId], references: [id])
+  destinationFirstname    String
+  destinationLastname     String
+  destinationEmailAddress String
+  destinationMobileNumber String
+}

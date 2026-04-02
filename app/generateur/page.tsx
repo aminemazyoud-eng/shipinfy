@@ -109,7 +109,7 @@ export default function GenerateurPage() {
         body: JSON.stringify({ count: countNeedingRef }),
       })
       if (!refRes.ok) {
-        toast({ title: 'Erreur', description: 'Impossible de générer les codes de tracking', variant: 'destructive' })
+        toast({ title: 'Erreur — codes de tracking', description: 'Impossible de générer les codes de tracking' })
         return
       }
       const { codes } = await refRes.json() as { codes: string[] }

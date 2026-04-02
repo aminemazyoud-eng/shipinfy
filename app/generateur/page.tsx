@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useToast } from '@/hooks/use-toast'
@@ -98,16 +98,38 @@ export default function GenerateurPage() {
     if (!rows) return
     if (!selectedWH && tournees.length === 0) { setErrors(['Veuillez sélectionner un Warehouse']); return }
 
+    // Auto-generate shipperReference for rows that don't have one
+    const countNeedingRef = rows.filter(t => !t.shipperReference).length
+    let finalRows = rows
+
+    if (countNeedingRef > 0) {
+      const refRes = await fetch('/api/shipper-references', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ count: countNeedingRef }),
+      })
+      if (!refRes.ok) {
+        toast({ title: 'Erreur', description: 'Impossible de générer les codes de tracking', variant: 'destructive' })
+        return
+      }
+      const { codes } = await refRes.json() as { codes: string[] }
+      let codeIdx = 0
+      finalRows = rows.map(t => ({
+        ...t,
+        shipperReference: t.shipperReference || codes[codeIdx++],
+      }))
+    }
+
     const now = new Date()
     const ts = now.getFullYear().toString() + String(now.getMonth()+1).padStart(2,'0') + String(now.getDate()).padStart(2,'0') + '_' + String(now.getHours()).padStart(2,'0') + String(now.getMinutes()).padStart(2,'0') + String(now.getSeconds()).padStart(2,'0')
     const whName = selectedWH?.name || 'EXPORT'
     const filename = `SHIPINFY_${whName}_${ts}.csv`
-    const csvContent = generateCSV(rows)
+    const csvContent = generateCSV(finalRows)
 
     await fetch('/api/exports', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filename, warehouseName: whName, nbTournees: rows.length, csvContent })
+      body: JSON.stringify({ filename, warehouseName: whName, nbTournees: finalRows.length, csvContent })
     })
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
@@ -141,8 +163,12 @@ export default function GenerateurPage() {
         <CardContent className="space-y-3">
           <div>
             <label className="text-sm font-medium">Warehouse</label>
-            <Select onValueChange={handleWHChange}>
-              <SelectTrigger><SelectValue placeholder="Sélectionner un Warehouse" /></SelectTrigger>
+            <Select onValueChange={handleWHChange} value={selectedWH?.id ?? ''}>
+              <SelectTrigger>
+                <span data-slot="select-value" className={`flex flex-1 text-left text-sm${!selectedWH ? ' text-muted-foreground' : ''}`}>
+                  {selectedWH ? selectedWH.name : 'Sélectionner un Warehouse'}
+                </span>
+              </SelectTrigger>
               <SelectContent>{warehouses.map(wh => <SelectItem key={wh.id} value={wh.id}>{wh.name}</SelectItem>)}</SelectContent>
             </Select>
           </div>
@@ -162,8 +188,12 @@ export default function GenerateurPage() {
         <CardContent className="space-y-3">
           <div>
             <label className="text-sm font-medium">Magasin</label>
-            <Select onValueChange={handleStoreChange} disabled={!selectedWH} value={selectedStore?.id || ''}>
-              <SelectTrigger><SelectValue placeholder="Sélectionner un Magasin" /></SelectTrigger>
+            <Select onValueChange={handleStoreChange} disabled={!selectedWH} value={selectedStore?.id ?? ''}>
+              <SelectTrigger>
+                <span data-slot="select-value" className={`flex flex-1 text-left text-sm${!selectedStore ? ' text-muted-foreground' : ''}`}>
+                  {selectedStore ? selectedStore.destinationAddress : 'Sélectionner un Magasin'}
+                </span>
+              </SelectTrigger>
               <SelectContent>{stores.map(s => <SelectItem key={s.id} value={s.id}>{s.destinationAddress}</SelectItem>)}</SelectContent>
             </Select>
           </div>
@@ -184,8 +214,12 @@ export default function GenerateurPage() {
         <CardContent className="space-y-3">
           <div>
             <label className="text-sm font-medium">Contact</label>
-            <Select onValueChange={handleContactChange} disabled={!selectedStore} value={selectedContact?.id || ''}>
-              <SelectTrigger><SelectValue placeholder="Sélectionner un Contact" /></SelectTrigger>
+            <Select onValueChange={handleContactChange} disabled={!selectedStore} value={selectedContact?.id ?? ''}>
+              <SelectTrigger>
+                <span data-slot="select-value" className={`flex flex-1 text-left text-sm${!selectedContact ? ' text-muted-foreground' : ''}`}>
+                  {selectedContact ? `${selectedContact.destinationFirstname} ${selectedContact.destinationLastname}` : 'Sélectionner un Contact'}
+                </span>
+              </SelectTrigger>
               <SelectContent>{contacts.map(c => <SelectItem key={c.id} value={c.id}>{c.destinationFirstname} {c.destinationLastname}</SelectItem>)}</SelectContent>
             </Select>
           </div>

@@ -44,3 +44,8 @@ model StoreContact {
   destinationEmailAddress String
   destinationMobileNumber String
 }
+
+model ShipperReference {
+  code      String   @id
+  createdAt DateTime @default(now())
+}

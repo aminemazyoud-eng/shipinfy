@@ -42,6 +42,12 @@ CREATE TABLE IF NOT EXISTS "StoreContact" (
     CONSTRAINT "StoreContact_pkey" PRIMARY KEY ("id")
 );
 
+CREATE TABLE IF NOT EXISTS "ShipperReference" (
+    "code" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "ShipperReference_pkey" PRIMARY KEY ("code")
+);
+
 -- Foreign keys (safe to re-add with DO block)
 DO $$
 BEGIN

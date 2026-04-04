@@ -68,3 +68,63 @@ BEGIN
         FOREIGN KEY ("storeId") REFERENCES "Store"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
     END IF;
 END $$;
+
+CREATE TABLE IF NOT EXISTS "DeliveryReport" (
+    "id" TEXT NOT NULL,
+    "filename" TEXT NOT NULL,
+    "uploadedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    CONSTRAINT "DeliveryReport_pkey" PRIMARY KEY ("id")
+);
+
+CREATE TABLE IF NOT EXISTS "DeliveryOrder" (
+    "id" TEXT NOT NULL,
+    "reportId" TEXT NOT NULL,
+    "externalReference" TEXT,
+    "shipperReference" TEXT,
+    "carrierReference" TEXT,
+    "pickupTimeStart" TIMESTAMP(3),
+    "deliveryTimeStart" TIMESTAMP(3),
+    "deliveryTimeEnd" TIMESTAMP(3),
+    "dateTimeWhenOrderSent" TIMESTAMP(3),
+    "dateTimeWhenAssigned" TIMESTAMP(3),
+    "dateTimeWhenInTransport" TIMESTAMP(3),
+    "dateTimeWhenStartDelivery" TIMESTAMP(3),
+    "dateTimeWhenDelivered" TIMESTAMP(3),
+    "dateTimeWhenNoShow" TIMESTAMP(3),
+    "dateTimeLastUpdate" TIMESTAMP(3),
+    "shippingWorkflowStatus" TEXT,
+    "paymentOnDeliveryAmount" DOUBLE PRECISION,
+    "destinationFirstname" TEXT,
+    "destinationLastname" TEXT,
+    "destinationCityCode" TEXT,
+    "destinationLongitude" DOUBLE PRECISION,
+    "destinationLatitude" DOUBLE PRECISION,
+    "originHubName" TEXT,
+    "originHubCode" TEXT,
+    "originHubCity" TEXT,
+    "originHubLongitude" DOUBLE PRECISION,
+    "originHubLatitude" DOUBLE PRECISION,
+    "sprintName" TEXT,
+    "sprintGeoLongitude" DOUBLE PRECISION,
+    "sprintGeoLatitude" DOUBLE PRECISION,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "DeliveryOrder_pkey" PRIMARY KEY ("id")
+);
+
+CREATE INDEX IF NOT EXISTS "DeliveryOrder_reportId_idx" ON "DeliveryOrder"("reportId");
+CREATE INDEX IF NOT EXISTS "DeliveryOrder_shippingWorkflowStatus_idx" ON "DeliveryOrder"("shippingWorkflowStatus");
+CREATE INDEX IF NOT EXISTS "DeliveryOrder_dateTimeWhenOrderSent_idx" ON "DeliveryOrder"("dateTimeWhenOrderSent");
+CREATE INDEX IF NOT EXISTS "DeliveryOrder_deliveryTimeStart_idx" ON "DeliveryOrder"("deliveryTimeStart");
+CREATE INDEX IF NOT EXISTS "DeliveryOrder_sprintName_idx" ON "DeliveryOrder"("sprintName");
+CREATE INDEX IF NOT EXISTS "DeliveryOrder_originHubName_idx" ON "DeliveryOrder"("originHubName");
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'DeliveryOrder_reportId_fkey'
+  ) THEN
+    ALTER TABLE "DeliveryOrder" ADD CONSTRAINT "DeliveryOrder_reportId_fkey"
+      FOREIGN KEY ("reportId") REFERENCES "DeliveryReport"("id") ON DELETE CASCADE;
+  END IF;
+END $$;

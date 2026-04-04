@@ -49,3 +49,61 @@ model ShipperReference {
   code      String   @id
   createdAt DateTime @default(now())
 }
+
+model DeliveryReport {
+  id         String          @id @default(cuid())
+  filename   String
+  uploadedAt DateTime        @default(now())
+  isActive   Boolean         @default(true)
+  orders     DeliveryOrder[]
+}
+
+model DeliveryOrder {
+  id                          String         @id @default(cuid())
+  reportId                    String
+  report                      DeliveryReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  externalReference           String?
+  shipperReference            String?
+  carrierReference            String?
+
+  pickupTimeStart             DateTime?
+  deliveryTimeStart           DateTime?
+  deliveryTimeEnd             DateTime?
+
+  dateTimeWhenOrderSent       DateTime?
+  dateTimeWhenAssigned        DateTime?
+  dateTimeWhenInTransport     DateTime?
+  dateTimeWhenStartDelivery   DateTime?
+  dateTimeWhenDelivered       DateTime?
+  dateTimeWhenNoShow          DateTime?
+  dateTimeLastUpdate          DateTime?
+
+  shippingWorkflowStatus      String?
+  paymentOnDeliveryAmount     Float?
+
+  destinationFirstname        String?
+  destinationLastname         String?
+  destinationCityCode         String?
+  destinationLongitude        Float?
+  destinationLatitude         Float?
+
+  originHubName               String?
+  originHubCode               String?
+  originHubCity               String?
+  originHubLongitude          Float?
+  originHubLatitude           Float?
+
+  sprintName                  String?
+  sprintGeoLongitude          Float?
+  sprintGeoLatitude           Float?
+
+  createdAt                   DateTime @default(now())
+
+  @@index([reportId])
+  @@index([shippingWorkflowStatus])
+  @@index([dateTimeWhenOrderSent])
+  @@index([deliveryTimeStart])
+  @@index([sprintName])
+  @@index([originHubName])
+}

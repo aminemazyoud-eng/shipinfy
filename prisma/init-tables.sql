@@ -128,3 +128,17 @@ BEGIN
       FOREIGN KEY ("reportId") REFERENCES "DeliveryReport"("id") ON DELETE CASCADE;
   END IF;
 END $$;
+
+CREATE TABLE IF NOT EXISTS "ScheduledReport" (
+    "id" TEXT NOT NULL,
+    "reportId" TEXT NOT NULL,
+    "emails" TEXT NOT NULL,
+    "frequency" TEXT NOT NULL,
+    "time" TEXT NOT NULL,
+    "dayOfWeek" INTEGER,
+    "dayOfMonth" INTEGER,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "ScheduledReport_pkey" PRIMARY KEY ("id")
+);

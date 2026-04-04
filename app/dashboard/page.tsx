@@ -146,7 +146,7 @@ export default function DashboardPage() {
               <BarChart3 className="h-5 w-5 text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-gray-900">Dashboard BI — Tournées</h1>
+              <h1 className="text-xl font-bold text-gray-900">KPIs & Métriques — Tournées</h1>
               <p className="text-sm text-gray-500">Analyse des performances de livraison</p>
             </div>
           </div>

@@ -26,6 +26,8 @@ export const COLUMN_MAP: Record<string, string> = {
   'originHub.address.longitude':          'originHubLongitude',
   'originHub.address.lattitude':          'originHubLatitude',
   'sprint.name':                          'sprintName',
+  'sprint.businessUser.firstName':        'livreurFirstName',
+  'sprint.businessUser.lastName':         'livreurLastName',
   'sprintGeoLocationLongitude':           'sprintGeoLongitude',
   'sprintGeoLocationLattitude':           'sprintGeoLatitude',
 }

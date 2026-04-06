@@ -108,6 +108,8 @@ model DeliveryOrder {
   originHubLatitude           Float?
 
   sprintName                  String?
+  livreurFirstName            String?
+  livreurLastName             String?
   sprintGeoLongitude          Float?
   sprintGeoLatitude           Float?
 

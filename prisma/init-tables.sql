@@ -106,6 +106,8 @@ CREATE TABLE IF NOT EXISTS "DeliveryOrder" (
     "originHubLongitude" DOUBLE PRECISION,
     "originHubLatitude" DOUBLE PRECISION,
     "sprintName" TEXT,
+    "livreurFirstName" TEXT,
+    "livreurLastName" TEXT,
     "sprintGeoLongitude" DOUBLE PRECISION,
     "sprintGeoLatitude" DOUBLE PRECISION,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,

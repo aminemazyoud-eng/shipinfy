@@ -9,9 +9,8 @@ import { ChartByDay } from './components/ChartByDay'
 import { ChartByCreneau } from './components/ChartByCreneau'
 import { ChartStatusPie } from './components/ChartStatusPie'
 import { ChartOnTimePie } from './components/ChartOnTimePie'
-import { ChartLivreurRadar } from './components/ChartLivreurRadar'
 import { ChartCODArea } from './components/ChartCODArea'
-import { ChartCityBar } from './components/ChartCityBar'
+import { DeliveryHeatmap } from './components/DeliveryHeatmap'
 import { LivreurTable } from './components/LivreurTable'
 import { HubTable } from './components/HubTable'
 import { BestWorstDay } from './components/BestWorstDay'
@@ -90,6 +89,9 @@ interface KpisData {
   worstDay: { date: string; volume: number; avgDuration: number } | null
   bestHub: { name: string; deliveryRate: number } | null
   bestLivreur: { name: string; deliveryRate: number; avgDuration: number } | null
+  heatmapPoints: [number, number, number][]
+  noShowLocations: Array<{ lat: number; lng: number; firstName?: string; lastName?: string; ref?: string }>
+  hubLocations: Array<{ name: string; lat: number; lng: number }>
 }
 
 export default function DashboardPage() {
@@ -103,20 +105,20 @@ export default function DashboardPage() {
   useEffect(() => {
     fetch('/api/dashboard/reports')
       .then(r => r.json())
-      .then((reports: Report[]) => {
-        if (reports.length > 0) setActiveReport(reports[0])
-      })
+      .then((reports: Report[]) => { if (reports.length > 0) setActiveReport(reports[0]) })
       .catch(() => {})
   }, [])
 
   const fetchKpis = useCallback(async (reportId: string, f: FilterState) => {
     setLoading(true)
     try {
-      const p = new URLSearchParams({ reportId, preset: f.preset, creneau: f.creneau })
+      const p = new URLSearchParams({ reportId, preset: f.preset })
       if (f.dateFrom) p.set('dateFrom', f.dateFrom)
-      if (f.dateTo) p.set('dateTo', f.dateTo)
-      if (f.hubName) p.set('hubName', f.hubName)
-      if (f.sprintName) p.set('sprintName', f.sprintName)
+      if (f.dateTo)   p.set('dateTo',   f.dateTo)
+      // Multi-select: comma-separated
+      if (f.selectedCreneaux.length > 0)  p.set('creneaux', f.selectedCreneaux.join(','))
+      if (f.selectedHubs.length > 0)      p.set('hubs',     f.selectedHubs.join(','))
+      if (f.selectedLivreurs.length > 0)  p.set('livreurs', f.selectedLivreurs.join(','))
       const res = await fetch(`/api/dashboard/kpis?${p}`)
       setKpis(await res.json() as KpisData)
     } catch {
@@ -132,7 +134,7 @@ export default function DashboardPage() {
     debounceRef.current = setTimeout(() => fetchKpis(activeReport.id, filters), 300)
   }, [activeReport, filters, fetchKpis])
 
-  const hubs = kpis?.byHub.map(h => h.hubName) ?? []
+  const hubs    = kpis?.byHub.map(h => h.hubName) ?? []
   const sprints = kpis?.byLivreur.map(l => l.name) ?? []
 
   return (
@@ -185,46 +187,52 @@ export default function DashboardPage() {
         {kpis && !loading && (
           <div className="space-y-6">
 
-            {/* KPI Cards */}
+            {/* Row 1 — KPI Cards */}
             <KpiCards kpis={{
-              totalOrders: kpis.totalOrders,
-              delivered: kpis.delivered,
-              noShow: kpis.noShow,
-              deliveryRate: kpis.deliveryRate,
-              onTimeRate: kpis.onTimeRate,
-              totalCOD: kpis.totalCOD,
+              totalOrders:     kpis.totalOrders,
+              delivered:       kpis.delivered,
+              noShow:          kpis.noShow,
+              deliveryRate:    kpis.deliveryRate,
+              onTimeRate:      kpis.onTimeRate,
+              totalCOD:        kpis.totalCOD,
               avgOrdersPerDay: kpis.avgOrdersPerDay,
-              avgCODPerOrder: kpis.avgCODPerOrder,
+              avgCODPerOrder:  kpis.avgCODPerOrder,
             }} />
 
-            {/* Row 1 : Pie charts */}
+            {/* Row 2 — Pie charts */}
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
               <ChartStatusPie data={kpis.statusDistribution} title="Distribution des statuts" />
               <ChartOnTimePie data={kpis.onTimeDistribution} onTimeRate={kpis.onTimeRate} />
             </div>
 
-            {/* Row 2 : Tendance journalière */}
+            {/* Row 3 — Tendance journalière */}
             <ChartByDay data={kpis.byDay} />
 
-            {/* Row 3 : Pipeline + Best/Worst Day */}
+            {/* Row 4 — Pipeline + Best/Worst Day */}
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
               <DeliveryPipeline timing={kpis.timing} />
               <BestWorstDay best={kpis.bestDay} worst={kpis.worstDay} />
             </div>
 
-            {/* Row 4 : Créneau + COD */}
+            {/* Row 5 — Créneau + COD */}
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
               <ChartByCreneau data={kpis.byCreneau} />
               <ChartCODArea data={kpis.byDay} />
             </div>
 
-            {/* Row 5 : Radar livreurs + Top villes */}
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-              {kpis.byLivreur.length > 0 && <ChartLivreurRadar data={kpis.byLivreur} />}
-              {kpis.byCity.length > 0 && <ChartCityBar data={kpis.byCity} />}
+            {/* Row 6 — Carte Heatmap (pleine largeur) */}
+            <div className="grid grid-cols-1">
+              <DeliveryHeatmap
+                totalOrders={kpis.totalOrders}
+                data={{
+                  heatmapPoints:   kpis.heatmapPoints,
+                  noShowLocations: kpis.noShowLocations,
+                  hubLocations:    kpis.hubLocations,
+                }}
+              />
             </div>
 
-            {/* Row 6 : Tables */}
+            {/* Row 7 — Tables */}
             <LivreurTable data={kpis.byLivreur} />
             {kpis.byHub.length > 0 && <HubTable data={kpis.byHub} />}
 

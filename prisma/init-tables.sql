@@ -114,6 +114,18 @@ CREATE TABLE IF NOT EXISTS "DeliveryOrder" (
     CONSTRAINT "DeliveryOrder_pkey" PRIMARY KEY ("id")
 );
 
+-- Add new columns to existing DeliveryOrder table (idempotent)
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='DeliveryOrder' AND column_name='livreurFirstName') THEN
+    ALTER TABLE "DeliveryOrder" ADD COLUMN "livreurFirstName" TEXT;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='DeliveryOrder' AND column_name='livreurLastName') THEN
+    ALTER TABLE "DeliveryOrder" ADD COLUMN "livreurLastName" TEXT;
+  END IF;
+END $$;
+
 CREATE INDEX IF NOT EXISTS "DeliveryOrder_reportId_idx" ON "DeliveryOrder"("reportId");
 CREATE INDEX IF NOT EXISTS "DeliveryOrder_shippingWorkflowStatus_idx" ON "DeliveryOrder"("shippingWorkflowStatus");
 CREATE INDEX IF NOT EXISTS "DeliveryOrder_dateTimeWhenOrderSent_idx" ON "DeliveryOrder"("dateTimeWhenOrderSent");

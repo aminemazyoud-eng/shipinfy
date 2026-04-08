@@ -1,9 +1,22 @@
 import { NextResponse } from 'next/server'
 import { transporter } from '@/lib/mailer'
-import { buildEmailHTML, type EmailKpisData } from '@/lib/email-template'
+import { buildEmailHTML, buildEmailText, type EmailKpisData } from '@/lib/email-template'
 import { generateReportPDF } from '@/lib/pdf-report'
 
 export const runtime = 'nodejs'
+
+const MONTHS_FR = [
+  'Janvier','Février','Mars','Avril','Mai','Juin',
+  'Juillet','Août','Septembre','Octobre','Novembre','Décembre',
+]
+
+function buildSubject(iso: string): string {
+  const d = new Date(iso)
+  const day   = d.getDate().toString().padStart(2, '0')
+  const month = MONTHS_FR[d.getMonth()]
+  const year  = d.getFullYear()
+  return `📦 Rapport Performance Livraison — ${day} ${month} ${year} | Shipinfy`
+}
 
 export async function POST(request: Request) {
   try {
@@ -14,13 +27,22 @@ export async function POST(request: Request) {
       mode?:     string
       filters:   Record<string, unknown>
       kpisData:  EmailKpisData & {
-        totalOrders: number; delivered: number; noShow: number
-        deliveryRate: number; onTimeRate: number; totalCOD: number
+        totalOrders:     number
+        delivered:       number
+        noShow:          number
+        deliveryRate:    number
+        onTimeRate:      number
+        totalCOD:        number
         avgOrdersPerDay: number
-        timing?: EmailKpisData['timing']
-        byLivreur: EmailKpisData['byLivreur']
-        byHub:     EmailKpisData['byHub']
-        byDay:     EmailKpisData['byDay']
+        timing?:         EmailKpisData['timing']
+        byLivreur:       EmailKpisData['byLivreur']
+        byHub:           EmailKpisData['byHub']
+        byDay:           EmailKpisData['byDay']
+        byCreneau?:      EmailKpisData['byCreneau']
+        statusDistribution?:  EmailKpisData['statusDistribution']
+        onTimeDistribution?:  EmailKpisData['onTimeDistribution']
+        bestDay?:        EmailKpisData['bestDay']
+        worstDay?:       EmailKpisData['worstDay']
       }
     }
 
@@ -31,7 +53,6 @@ export async function POST(request: Request) {
 
     const generatedAt = new Date().toISOString()
 
-    // Build email payload
     const emailData: EmailKpisData = {
       summary: {
         totalOrders:     body.kpisData.totalOrders,
@@ -71,26 +92,29 @@ export async function POST(request: Request) {
         totalCOD:     d.totalCOD,
         deliveryRate: d.deliveryRate,
       })),
+      byCreneau:           body.kpisData.byCreneau,
+      statusDistribution:  body.kpisData.statusDistribution,
+      onTimeDistribution:  body.kpisData.onTimeDistribution,
+      bestDay:             body.kpisData.bestDay,
+      worstDay:            body.kpisData.worstDay,
       generatedAt,
     }
 
-    // Generate HTML template
     const htmlContent = buildEmailHTML(emailData)
+    const textContent = buildEmailText(emailData)
+    const pdfBuffer   = await generateReportPDF(emailData)
 
-    // Generate PDF attachment
-    const pdfBuffer = await generateReportPDF(emailData)
+    const subject = buildSubject(generatedAt)
 
     const dateStr = new Date(generatedAt)
       .toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
       .replace(/\//g, '-')
 
-    const subject = `📊 Rapport KPIs Livraisons — ${dateStr}`
-
-    // Send via nodemailer
     await transporter.sendMail({
       from:    process.env.SMTP_FROM ?? process.env.SMTP_USER,
       to:      emails.join(', '),
       subject,
+      text:    textContent,
       html:    htmlContent,
       attachments: [
         {

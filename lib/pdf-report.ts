@@ -3,51 +3,53 @@ import type { EmailKpisData } from './email-template'
 type PDFKit = typeof import('pdfkit')
 type PDFDocument = InstanceType<PDFKit>
 
-const fmt = (n: number) => Math.round(n).toLocaleString('fr-FR')
-const fmtPct = (n: number) => `${n.toFixed(1)}%`
-const fmtMAD = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} MAD`
-const fmtMin = (n: number) => {
+// ─── Formatters (regex-based — never toLocaleString, Node locale varies) ───
+const fmt    = (n: number): string =>
+  Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '\u202F')
+const fmtPct = (n: number): string => `${n.toFixed(1)} %`
+const fmtMAD = (n: number): string => `${fmt(n)} MAD`
+const fmtMin = (n: number): string => {
   const h = Math.floor(n / 60)
   const m = Math.round(n % 60)
   return h > 0 ? `${h}h${m.toString().padStart(2, '0')}` : `${m}min`
 }
-const fmtDate = (iso: string) =>
+const fmtDate = (iso: string): string =>
   new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
 
+// ─── Colors ────────────────────────────────────────────────────────────────
 const BLUE      = '#2563eb'
 const DARK_BLUE = '#1e3a5f'
 const GREEN     = '#16a34a'
 const RED       = '#dc2626'
 const ORANGE    = '#d97706'
 const PURPLE    = '#7c3aed'
+const CYAN      = '#0891b2'
 const GRAY      = '#64748b'
 const LIGHT_BG  = '#f8faff'
 const BORDER    = '#e2e8f0'
 const WHITE     = '#ffffff'
 const DARK_TEXT = '#0f172a'
 
-const PAGE_W = 595
-const PAGE_H = 842
-const MARGIN = 44
+// ─── Layout ────────────────────────────────────────────────────────────────
+const PAGE_W   = 595
+const PAGE_H   = 842
+const MARGIN   = 44
 const CONTENT_W = PAGE_W - MARGIN * 2
 
 function rateColor(rate: number): string {
   return rate >= 80 ? GREEN : rate >= 60 ? ORANGE : RED
 }
 
+// ─── Shared drawing helpers ────────────────────────────────────────────────
 function drawHeader(doc: PDFDocument, date: string) {
-  // Blue header background
   doc.rect(0, 0, PAGE_W, 90).fill(DARK_BLUE)
-  // Accent stripe
   doc.rect(0, 90, PAGE_W, 4).fill(BLUE)
 
-  // Logo text
   doc.fillColor(WHITE).font('Helvetica-Bold').fontSize(22)
     .text('SHIPINFY', MARGIN, 24)
   doc.fillColor('#93c5fd').font('Helvetica').fontSize(9)
     .text('RAPPORT KPIs — PERFORMANCES LIVRAISON', MARGIN, 50)
 
-  // Date badge
   const badgeX = PAGE_W - MARGIN - 120
   doc.rect(badgeX, 22, 120, 44).fill(BLUE)
   doc.fillColor('#bfdbfe').font('Helvetica').fontSize(8)
@@ -83,10 +85,8 @@ function drawTable(
   const ROW_H    = 20
   const totalW   = colWidths.reduce((a, b) => a + b, 0)
 
-  // Header background
   doc.rect(MARGIN, y, totalW, HEADER_H).fill(DARK_BLUE)
 
-  // Header text
   let cx = MARGIN
   headers.forEach((h, i) => {
     doc.fillColor('#e2e8f0').font('Helvetica-Bold').fontSize(8)
@@ -98,7 +98,6 @@ function drawTable(
     cx += colWidths[i]
   })
 
-  // Rows
   rows.forEach((row, ri) => {
     const ry = y + HEADER_H + ri * ROW_H
     doc.rect(MARGIN, ry, totalW, ROW_H).fill(ri % 2 === 0 ? WHITE : LIGHT_BG)
@@ -115,7 +114,6 @@ function drawTable(
     })
   })
 
-  // Border rect around entire table
   const tableH = HEADER_H + rows.length * ROW_H
   doc.rect(MARGIN, y, totalW, tableH).stroke(BORDER)
 
@@ -124,13 +122,8 @@ function drawTable(
 
 function kpiBox(
   doc: PDFDocument,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  label: string,
-  value: string,
-  color: string
+  x: number, y: number, w: number, h: number,
+  label: string, value: string, color: string
 ) {
   doc.rect(x, y, w, h).fill('#f0f7ff').stroke(BORDER)
   doc.fillColor(color).font('Helvetica-Bold').fontSize(16)
@@ -140,140 +133,278 @@ function kpiBox(
 }
 
 function pipelineBox(
-  doc: PDFDocument,
-  x: number,
-  y: number,
-  label: string,
-  value: string,
-  isLast: boolean
+  doc: PDFDocument, x: number, y: number,
+  label: string, value: string, isLast: boolean
 ) {
-  const W = 82
-  const H = 60
-  // Circle
+  const W = 82; const H = 60
   doc.circle(x + W / 2, y + 24, 22).fill('#dbeafe').stroke(BLUE)
   doc.fillColor(BLUE).font('Helvetica-Bold').fontSize(9)
     .text(value, x, y + 18, { width: W, align: 'center', lineBreak: false })
   doc.fillColor(GRAY).font('Helvetica').fontSize(7.5)
     .text(label, x, y + H - 14, { width: W, align: 'center' })
-
-  // Arrow connector
   if (!isLast) {
-    const ax = x + W + 3
-    const ay = y + 22
+    const ax = x + W + 3; const ay = y + 22
     doc.moveTo(ax, ay).lineTo(ax + 14, ay).stroke(BORDER)
     doc.moveTo(ax + 14, ay - 4).lineTo(ax + 20, ay).lineTo(ax + 14, ay + 4).fill(BORDER)
   }
 }
 
+/** Draw a horizontal bar (value 0–100) */
+function drawBar(
+  doc: PDFDocument,
+  x: number, y: number, totalW: number, h: number,
+  pct: number, color: string, label: string, valueStr: string
+) {
+  // Track
+  doc.rect(x, y, totalW, h).fill('#e2e8f0')
+  // Fill
+  const fillW = Math.max(2, (pct / 100) * totalW)
+  doc.rect(x, y, fillW, h).fill(color)
+  // Label left
+  doc.fillColor(DARK_TEXT).font('Helvetica').fontSize(8)
+    .text(label, x, y + h + 4, { lineBreak: false })
+  // Value right
+  doc.fillColor(DARK_TEXT).font('Helvetica-Bold').fontSize(8)
+    .text(valueStr, x, y + h + 4, { width: totalW, align: 'right', lineBreak: false })
+  return y + h + 20
+}
+
+/** Card for best/worst day */
+function dayCard(
+  doc: PDFDocument,
+  x: number, y: number, w: number, h: number,
+  title: string, bgColor: string, borderColor: string,
+  date: string, volume: string, duration: string
+) {
+  doc.rect(x, y, w, h).fill(bgColor).stroke(borderColor)
+  doc.fillColor(borderColor).font('Helvetica-Bold').fontSize(9)
+    .text(title, x + 8, y + 8, { width: w - 16, lineBreak: false })
+  doc.fillColor(DARK_TEXT).font('Helvetica-Bold').fontSize(14)
+    .text(date, x + 8, y + 22, { width: w - 16, lineBreak: false })
+  doc.fillColor(GRAY).font('Helvetica').fontSize(8)
+    .text(`${volume} colis  ·  durée moy. ${duration}`, x + 8, y + 40, { width: w - 16, lineBreak: false })
+}
+
+// ─── Main export ──────────────────────────────────────────────────────────
 export async function generateReportPDF(data: EmailKpisData): Promise<Buffer> {
   const PDFDocument = (await import('pdfkit')).default
 
   const date = fmtDate(data.generatedAt)
-  const { summary, timing, byLivreur, byHub, byDay } = data
+  const { summary, timing, byLivreur, byHub, byDay,
+          byCreneau, statusDistribution, onTimeDistribution,
+          bestDay, worstDay } = data
+
+  // Count total pages
+  const hasPage2 = !!(statusDistribution?.length || byCreneau?.length || bestDay || worstDay)
+  const hasPage3 = byLivreur.length > 0
+  const hasPage4 = byHub.length > 0 || byDay.length > 0
+  const totalPages =
+    1 +
+    (hasPage2 ? 1 : 0) +
+    (hasPage3 ? 1 : 0) +
+    (hasPage4 ? 1 : 0)
 
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 0, bufferPages: true })
     const buffers: Buffer[] = []
     doc.on('data', (chunk: Buffer) => buffers.push(chunk))
-    doc.on('end', () => resolve(Buffer.concat(buffers)))
+    doc.on('end',  () => resolve(Buffer.concat(buffers)))
     doc.on('error', reject)
 
-    // ───────────────────────────────────────────────────────────────────
-    // PAGE 1 : Cover + KPI Summary
-    // ───────────────────────────────────────────────────────────────────
+    let pageNum = 1
+
+    // ─────────────────────────────────────────────────────────────────────
+    // PAGE 1 — KPI Summary + Pipeline
+    // ─────────────────────────────────────────────────────────────────────
     drawHeader(doc, date)
 
     let y = 108
 
-    // Title
     doc.fillColor(DARK_TEXT).font('Helvetica-Bold').fontSize(18)
       .text('Rapport de Performance', MARGIN, y)
     doc.fillColor(GRAY).font('Helvetica').fontSize(11)
       .text('Analyse KPIs des tournées de livraison', MARGIN, y + 24)
     y += 56
 
-    // 4 KPI boxes row 1
-    const BOX_W = 115
-    const BOX_H = 58
-    const GAP   = 10
-    const boxesY = y
+    const BOX_W = 115; const BOX_H = 58; const GAP = 10
 
-    kpiBox(doc, MARGIN,               boxesY, BOX_W, BOX_H, 'Total commandes', fmt(summary.totalOrders), BLUE)
-    kpiBox(doc, MARGIN + BOX_W + GAP, boxesY, BOX_W, BOX_H, 'Taux livraison',  fmtPct(summary.deliveryRate), rateColor(summary.deliveryRate))
-    kpiBox(doc, MARGIN + (BOX_W + GAP) * 2, boxesY, BOX_W, BOX_H, 'On-Time', fmtPct(summary.onTimeRate), rateColor(summary.onTimeRate))
-    kpiBox(doc, MARGIN + (BOX_W + GAP) * 3, boxesY, BOX_W, BOX_H, 'Total COD', fmtMAD(summary.totalCOD), PURPLE)
-    y = boxesY + BOX_H + 10
+    kpiBox(doc, MARGIN,                      y, BOX_W, BOX_H, 'Total commandes', fmt(summary.totalOrders),   BLUE)
+    kpiBox(doc, MARGIN + BOX_W + GAP,        y, BOX_W, BOX_H, 'Taux livraison',  fmtPct(summary.deliveryRate), rateColor(summary.deliveryRate))
+    kpiBox(doc, MARGIN + (BOX_W + GAP) * 2,  y, BOX_W, BOX_H, 'On-Time',         fmtPct(summary.onTimeRate),   rateColor(summary.onTimeRate))
+    kpiBox(doc, MARGIN + (BOX_W + GAP) * 3,  y, BOX_W, BOX_H, 'Total COD',       fmtMAD(summary.totalCOD),     PURPLE)
+    y += BOX_H + 10
 
-    // KPI boxes row 2
-    kpiBox(doc, MARGIN,               y, BOX_W, BOX_H, 'Livrées',       fmt(summary.delivered), GREEN)
-    kpiBox(doc, MARGIN + BOX_W + GAP, y, BOX_W, BOX_H, 'NO_SHOW',       fmt(summary.noShow),    RED)
-    kpiBox(doc, MARGIN + (BOX_W + GAP) * 2, y, BOX_W, BOX_H, 'Cmd / jour', summary.avgOrdersPerDay.toFixed(0), '#0891b2')
-    kpiBox(doc, MARGIN + (BOX_W + GAP) * 3, y, BOX_W, BOX_H, 'Moy. COD/cmd', fmtMAD(summary.totalCOD / Math.max(summary.delivered, 1)), PURPLE)
+    kpiBox(doc, MARGIN,                      y, BOX_W, BOX_H, 'Livrées',         fmt(summary.delivered),      GREEN)
+    kpiBox(doc, MARGIN + BOX_W + GAP,        y, BOX_W, BOX_H, 'NO_SHOW',         fmt(summary.noShow),         RED)
+    kpiBox(doc, MARGIN + (BOX_W + GAP) * 2,  y, BOX_W, BOX_H, 'Cmd / jour',      summary.avgOrdersPerDay.toFixed(0), CYAN)
+    kpiBox(doc, MARGIN + (BOX_W + GAP) * 3,  y, BOX_W, BOX_H, 'Moy. COD/cmd',   fmtMAD(summary.totalCOD / Math.max(summary.delivered, 1)), PURPLE)
     y += BOX_H + 20
 
-    // Divider
     doc.rect(MARGIN, y, CONTENT_W, 1).fill(BORDER)
     y += 16
 
-    // ─── Pipeline ───
     if (timing) {
       y = drawSectionTitle(doc, 'Pipeline des délais', y)
-
       const steps = [
-        { label: 'Création\n→ Assigné',     value: fmtMin(timing.orderToAssign) },
-        { label: 'Assigné\n→ Transport',    value: fmtMin(timing.assignToTransport) },
-        { label: 'Transport\n→ Départ',     value: fmtMin(timing.transportToStart) },
-        { label: 'Départ\n→ Livré',         value: fmtMin(timing.startToDelivered) },
-        { label: 'Durée\ntotale',           value: fmtMin(timing.totalDuration) },
+        { label: 'Création\n→ Assigné',  value: fmtMin(timing.orderToAssign) },
+        { label: 'Assigné\n→ Transport', value: fmtMin(timing.assignToTransport) },
+        { label: 'Transport\n→ Départ',  value: fmtMin(timing.transportToStart) },
+        { label: 'Départ\n→ Livré',      value: fmtMin(timing.startToDelivered) },
+        { label: 'Durée\ntotale',        value: fmtMin(timing.totalDuration) },
       ]
-
       const STEP_W = 100
       const startX = MARGIN + (CONTENT_W - STEP_W * 5) / 2
-      steps.forEach((s, i) => {
-        pipelineBox(doc, startX + i * STEP_W, y, s.label, s.value, i === steps.length - 1)
-      })
+      steps.forEach((s, i) => pipelineBox(doc, startX + i * STEP_W, y, s.label, s.value, i === steps.length - 1))
       y += 80
     }
 
-    drawPageFooter(doc, 1, byLivreur.length > 0 ? (byHub.length > 0 || byDay.length > 0 ? 3 : 2) : 1)
+    drawPageFooter(doc, pageNum, totalPages)
+    pageNum++
 
-    // ───────────────────────────────────────────────────────────────────
-    // PAGE 2 : Livreur Ranking
-    // ───────────────────────────────────────────────────────────────────
-    if (byLivreur.length > 0) {
+    // ─────────────────────────────────────────────────────────────────────
+    // PAGE 2 — Distribution des statuts + Créneaux + Meilleure/Pire journée
+    // ─────────────────────────────────────────────────────────────────────
+    if (hasPage2) {
+      doc.addPage()
+      drawHeader(doc, date)
+      y = 108
+
+      // ── Distribution des statuts ────────────────────────────────────
+      if (statusDistribution && statusDistribution.length > 0) {
+        y = drawSectionTitle(doc, 'Distribution des statuts', y)
+        const total = statusDistribution.reduce((s, d) => s + d.value, 0)
+        const BAR_W = CONTENT_W - 20
+        const BAR_H = 12
+
+        statusDistribution.slice(0, 8).forEach(item => {
+          const pct = total > 0 ? (item.value / total) * 100 : 0
+          // Track background
+          doc.rect(MARGIN, y, BAR_W, BAR_H).fill('#e2e8f0')
+          // Fill bar
+          const fillW = Math.max(2, (pct / 100) * BAR_W)
+          const barColor = item.color ?? BLUE
+          doc.rect(MARGIN, y, fillW, BAR_H).fill(barColor)
+          // Labels
+          doc.fillColor(DARK_TEXT).font('Helvetica').fontSize(8)
+            .text(item.name, MARGIN, y + BAR_H + 3, { lineBreak: false })
+          doc.fillColor(DARK_TEXT).font('Helvetica-Bold').fontSize(8)
+            .text(`${fmt(item.value)}  (${pct.toFixed(1)} %)`, MARGIN, y + BAR_H + 3,
+              { width: BAR_W, align: 'right', lineBreak: false })
+          y += BAR_H + 20
+        })
+        y += 6
+      }
+
+      // ── Respect des créneaux (on-time distribution) ─────────────────
+      if (onTimeDistribution && onTimeDistribution.length > 0) {
+        doc.rect(MARGIN, y, CONTENT_W, 1).fill(BORDER)
+        y += 14
+        y = drawSectionTitle(doc, 'Respect des créneaux', y)
+        const total = onTimeDistribution.reduce((s, d) => s + d.value, 0)
+        const BAR_W = CONTENT_W - 20
+        const BAR_H = 12
+
+        onTimeDistribution.forEach(item => {
+          const pct = total > 0 ? (item.value / total) * 100 : 0
+          doc.rect(MARGIN, y, BAR_W, BAR_H).fill('#e2e8f0')
+          const fillW = Math.max(2, (pct / 100) * BAR_W)
+          doc.rect(MARGIN, y, fillW, BAR_H).fill(item.color ?? GREEN)
+          doc.fillColor(DARK_TEXT).font('Helvetica').fontSize(8)
+            .text(item.name, MARGIN, y + BAR_H + 3, { lineBreak: false })
+          doc.fillColor(DARK_TEXT).font('Helvetica-Bold').fontSize(8)
+            .text(`${fmt(item.value)}  (${pct.toFixed(1)} %)`, MARGIN, y + BAR_H + 3,
+              { width: BAR_W, align: 'right', lineBreak: false })
+          y += BAR_H + 20
+        })
+        y += 6
+      }
+
+      // ── Meilleure / Pire journée ─────────────────────────────────────
+      if (bestDay || worstDay) {
+        doc.rect(MARGIN, y, CONTENT_W, 1).fill(BORDER)
+        y += 14
+        y = drawSectionTitle(doc, 'Meilleure & Pire journée', y)
+
+        const CARD_W = (CONTENT_W - 16) / 2
+        const CARD_H = 60
+
+        if (bestDay) {
+          dayCard(doc, MARGIN, y, CARD_W, CARD_H,
+            '🏆  MEILLEURE JOURNÉE', '#f0fdf4', GREEN,
+            bestDay.date, fmt(bestDay.volume), fmtMin(bestDay.avgDuration))
+        }
+        if (worstDay) {
+          dayCard(doc, MARGIN + CARD_W + 16, y, CARD_W, CARD_H,
+            '⚠️  JOURNÉE LA PLUS LENTE', '#fff7ed', ORANGE,
+            worstDay.date, fmt(worstDay.volume), fmtMin(worstDay.avgDuration))
+        }
+        y += CARD_H + 20
+      }
+
+      // ── Détail par créneau ──────────────────────────────────────────
+      if (byCreneau && byCreneau.length > 0) {
+        doc.rect(MARGIN, y, CONTENT_W, 1).fill(BORDER)
+        y += 14
+        y = drawSectionTitle(doc, 'Détail par créneau horaire', y)
+
+        y = drawTable(
+          doc,
+          ['Créneau', 'Total', 'Livrées', 'NO_SHOW', 'Taux liv.', 'On-Time', 'Durée moy.'],
+          byCreneau.map(c => [
+            c.creneau,
+            fmt(c.total),
+            fmt(c.delivered),
+            fmt(c.noShow),
+            fmtPct(c.deliveryRate),
+            fmtPct(c.onTimeRate),
+            fmtMin(c.avgDuration),
+          ]),
+          [110, 52, 54, 56, 60, 60, 70],
+          ['left', 'right', 'right', 'right', 'right', 'right', 'right'],
+          y
+        )
+      }
+
+      drawPageFooter(doc, pageNum, totalPages)
+      pageNum++
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // PAGE 3 — Livreur Ranking
+    // ─────────────────────────────────────────────────────────────────────
+    if (hasPage3) {
       doc.addPage()
       drawHeader(doc, date)
       y = 108
 
       y = drawSectionTitle(doc, 'Classement des Livreurs', y)
 
-      const livreurRows = byLivreur.slice(0, 25).map((l) => [
-        `#${l.rank}`,
-        l.name,
-        fmt(l.total),
-        fmt(l.delivered),
-        `${fmtPct(l.deliveryRate)}`,
-        `${fmtPct(l.onTimeRate)}`,
-        fmtMin(l.avgDuration),
-        fmtMAD(l.totalCOD),
-      ])
-
       y = drawTable(
         doc,
         ['Rang', 'Livreur', 'Total', 'Livrées', 'Taux liv.', 'On-Time', 'Durée', 'COD'],
-        livreurRows,
+        byLivreur.slice(0, 25).map(l => [
+          `#${l.rank}`,
+          l.name,
+          fmt(l.total),
+          fmt(l.delivered),
+          fmtPct(l.deliveryRate),
+          fmtPct(l.onTimeRate),
+          fmtMin(l.avgDuration),
+          fmtMAD(l.totalCOD),
+        ]),
         [36, 120, 44, 46, 52, 50, 48, 76],
         ['left', 'left', 'right', 'right', 'right', 'right', 'right', 'right'],
         y
       )
 
-      drawPageFooter(doc, 2, byHub.length > 0 || byDay.length > 0 ? 3 : 2)
+      drawPageFooter(doc, pageNum, totalPages)
+      pageNum++
     }
 
-    // ───────────────────────────────────────────────────────────────────
-    // PAGE 3 : Hub Performance + Daily Trend
-    // ───────────────────────────────────────────────────────────────────
-    if (byHub.length > 0 || byDay.length > 0) {
+    // ─────────────────────────────────────────────────────────────────────
+    // PAGE 4 — Hub Performance + Tendance journalière
+    // ─────────────────────────────────────────────────────────────────────
+    if (hasPage4) {
       doc.addPage()
       drawHeader(doc, date)
       y = 108
@@ -281,20 +412,18 @@ export async function generateReportPDF(data: EmailKpisData): Promise<Buffer> {
       if (byHub.length > 0) {
         y = drawSectionTitle(doc, 'Performance par Hub', y)
 
-        const hubRows = byHub.slice(0, 15).map((h) => [
-          h.hubName,
-          h.hubCity || '—',
-          fmt(h.total),
-          fmt(h.delivered),
-          fmtPct(h.deliveryRate),
-          fmtMin(h.avgDuration),
-          fmtMAD(h.totalCOD),
-        ])
-
         y = drawTable(
           doc,
           ['Hub', 'Ville', 'Total', 'Livrées', 'Taux', 'Durée', 'COD Total'],
-          hubRows,
+          byHub.slice(0, 15).map(h => [
+            h.hubName,
+            h.hubCity || '—',
+            fmt(h.total),
+            fmt(h.delivered),
+            fmtPct(h.deliveryRate),
+            fmtMin(h.avgDuration),
+            fmtMAD(h.totalCOD),
+          ]),
           [110, 80, 46, 50, 52, 50, 84],
           ['left', 'left', 'right', 'right', 'right', 'right', 'right'],
           y
@@ -305,26 +434,24 @@ export async function generateReportPDF(data: EmailKpisData): Promise<Buffer> {
       if (byDay.length > 0) {
         y = drawSectionTitle(doc, 'Tendance Journalière', y)
 
-        const dayRows = byDay.slice(-20).map((d) => [
-          d.date,
-          fmt(d.total),
-          fmt(d.delivered),
-          fmt(d.noShow),
-          fmtPct(d.deliveryRate),
-          fmtMAD(d.totalCOD),
-        ])
-
         drawTable(
           doc,
           ['Date', 'Total', 'Livrées', 'NO_SHOW', 'Taux livraison', 'COD Total'],
-          dayRows,
+          byDay.slice(-20).map(d => [
+            d.date,
+            fmt(d.total),
+            fmt(d.delivered),
+            fmt(d.noShow),
+            fmtPct(d.deliveryRate),
+            fmtMAD(d.totalCOD),
+          ]),
           [90, 58, 60, 64, 100, 100],
           ['left', 'right', 'right', 'right', 'right', 'right'],
           y
         )
       }
 
-      drawPageFooter(doc, 3, 3)
+      drawPageFooter(doc, pageNum, totalPages)
     }
 
     doc.end()

@@ -43,25 +43,103 @@ export interface EmailKpisData {
     totalCOD: number
     deliveryRate: number
   }>
+  byCreneau?: Array<{
+    creneau: string
+    total: number
+    delivered: number
+    noShow: number
+    deliveryRate: number
+    onTimeRate: number
+    avgDuration: number
+  }>
+  statusDistribution?: Array<{ name: string; value: number; color: string }>
+  onTimeDistribution?: Array<{ name: string; value: number; color: string }>
+  bestDay?: { date: string; volume: number; avgDuration: number } | null
+  worstDay?: { date: string; volume: number; avgDuration: number } | null
   generatedAt: string
 }
 
-const fmt = (n: number) => Math.round(n).toLocaleString('fr-FR')
-const fmtPct = (n: number) => `${n.toFixed(1)}%`
-const fmtMAD = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} MAD`
-const fmtMin = (n: number) => {
+// ─── Formatters ────────────────────────────────────────────────────────────────
+// Use regex-based thousands sep (never toLocaleString — Node locale varies)
+const fmt = (n: number): string =>
+  Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '\u202F')
+
+const fmtPct = (n: number): string => `${n.toFixed(1).replace('.', ',')} %`
+
+const fmtMAD = (n: number): string => `${fmt(n)} MAD`
+
+const fmtMin = (n: number): string => {
   const h = Math.floor(n / 60)
   const m = Math.round(n % 60)
   return h > 0 ? `${h}h${m.toString().padStart(2, '0')}` : `${m}min`
 }
-const fmtDate = (iso: string) =>
+
+const fmtDateLong = (iso: string): string =>
   new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
 
-const rateColor = (rate: number) =>
+const rateColor = (rate: number): string =>
   rate >= 80 ? '#16a34a' : rate >= 60 ? '#d97706' : '#dc2626'
 
-const rateEmoji = (rate: number) => (rate >= 80 ? '🟢' : rate >= 60 ? '🟡' : '🔴')
+const rateEmoji = (rate: number): string => (rate >= 80 ? '🟢' : rate >= 60 ? '🟡' : '🔴')
 
+// ─── Period helper ─────────────────────────────────────────────────────────────
+function getPeriod(byDay: EmailKpisData['byDay']): string {
+  if (!byDay.length) return ''
+  const sorted = [...byDay].map(d => d.date).sort()
+  const from = sorted[0]
+  const to   = sorted[sorted.length - 1]
+  if (from === to) return `du ${from}`
+  return `du ${from} au ${to}`
+}
+
+// ─── Email plain-text version ──────────────────────────────────────────────────
+export function buildEmailText(data: EmailKpisData): string {
+  const { summary, timing, byLivreur, byHub, byDay } = data
+  const period  = getPeriod(byDay)
+  const medals  = ['🥇', '🥈', '🥉']
+  const top3    = byLivreur.slice(0, 3)
+
+  const kpiLines = [
+    `• Taux de livraison   → ${fmtPct(summary.deliveryRate)}`,
+    `• Taux on-time        → ${fmtPct(summary.onTimeRate)}`,
+    `• Total commandes     → ${fmt(summary.totalOrders)}`,
+    `• COD total           → ${fmtMAD(summary.totalCOD)}`,
+    timing ? `• Durée totale moy.   → ${fmtMin(timing.totalDuration)}` : null,
+  ].filter(Boolean).join('\n')
+
+  const livreurLines = top3.map((l, i) => {
+    const nameP = l.name.padEnd(20)
+    return `${medals[i]} ${nameP} — ${l.deliveryRate.toFixed(0)} % | ${fmtMAD(l.totalCOD)}`
+  }).join('\n')
+
+  const hubLines = byHub.map(h => {
+    const icon = h.deliveryRate >= 80 ? '✅' : '⚠️'
+    const nameP = h.hubName.padEnd(25)
+    const alert = h.deliveryRate < 80 ? ' → Action requise' : ''
+    return `${icon} ${nameP} — ${fmtPct(h.deliveryRate)}${alert}`
+  }).join('\n')
+
+  return [
+    'Bonjour,',
+    '',
+    `Voici le résumé des performances de livraison${period ? ` pour la période ${period}` : ''}.`,
+    '',
+    '📊 KPIs CLÉS',
+    kpiLines,
+    '',
+    top3.length > 0 ? '🏆 TOP 3 LIVREURS\n' + livreurLines : null,
+    '',
+    byHub.length > 0 ? '🏭 HUBS\n' + hubLines : null,
+    '',
+    'Le rapport complet est joint en PDF.',
+    '',
+    'Cordialement,',
+    "L'équipe Operations — Shipinfy",
+    'shipinfy.mediflows.shop',
+  ].filter(l => l !== null).join('\n')
+}
+
+// ─── Sub-builders ──────────────────────────────────────────────────────────────
 function kpiCard(emoji: string, value: string, label: string, color = '#1d4ed8') {
   return `<td width="145" style="padding:6px;">
     <table cellpadding="0" cellspacing="0" border="0" width="100%"
@@ -77,13 +155,13 @@ function kpiCard(emoji: string, value: string, label: string, color = '#1d4ed8')
 
 function pipelineStep(label: string, value: string, isLast = false) {
   return `<td style="text-align:center;vertical-align:top;padding:0 2px;">
-      <div style="width:52px;height:52px;border-radius:50%;background:#dbeafe;border:2.5px solid #2563eb;
-        margin:0 auto;font-size:11px;font-weight:800;color:#1d4ed8;font-family:Arial,sans-serif;
-        line-height:52px;text-align:center;">${value}</div>
-      <div style="font-size:9px;color:#64748b;font-family:Arial,sans-serif;margin-top:6px;max-width:62px;line-height:1.3;">${label}</div>
-    </td>${isLast ? '' : `<td style="vertical-align:middle;padding-bottom:22px;">
-      <div style="width:18px;height:2px;background:#bfdbfe;margin:0 auto;"></div>
-    </td>`}`
+    <div style="width:52px;height:52px;border-radius:50%;background:#dbeafe;border:2.5px solid #2563eb;
+      margin:0 auto;font-size:11px;font-weight:800;color:#1d4ed8;font-family:Arial,sans-serif;
+      line-height:52px;text-align:center;">${value}</div>
+    <div style="font-size:9px;color:#64748b;font-family:Arial,sans-serif;margin-top:6px;max-width:62px;line-height:1.3;">${label}</div>
+  </td>${isLast ? '' : `<td style="vertical-align:middle;padding-bottom:22px;">
+    <div style="width:18px;height:2px;background:#bfdbfe;margin:0 auto;"></div>
+  </td>`}`
 }
 
 function sectionHeader(title: string) {
@@ -98,25 +176,118 @@ function sectionHeader(title: string) {
 
 function tableHeaderRow(cols: Array<{ label: string; align?: string }>) {
   return `<tr style="background:#1e3a5f;">${cols
-    .map(
-      (c) =>
-        `<th style="padding:10px 10px;font-size:10px;font-weight:700;color:#e2e8f0;
-          text-align:${c.align ?? 'left'};font-family:Arial,sans-serif;
-          text-transform:uppercase;letter-spacing:0.4px;">${c.label}</th>`
-    )
+    .map(c => `<th style="padding:10px 10px;font-size:10px;font-weight:700;color:#e2e8f0;
+        text-align:${c.align ?? 'left'};font-family:Arial,sans-serif;
+        text-transform:uppercase;letter-spacing:0.4px;">${c.label}</th>`)
     .join('')}</tr>`
 }
 
+// ─── Main HTML builder ─────────────────────────────────────────────────────────
 export function buildEmailHTML(data: EmailKpisData): string {
-  const { summary, timing, byLivreur, byHub, byDay, generatedAt } = data
-  const date = fmtDate(generatedAt)
-  const topLivreurs = byLivreur.slice(0, 10)
+  const { summary, timing, byLivreur, byHub, byDay, byCreneau, bestDay, worstDay, generatedAt } = data
+  const date    = fmtDateLong(generatedAt)
+  const period  = getPeriod(byDay)
+  const medals  = ['🥇', '🥈', '🥉']
+  const top3    = byLivreur.slice(0, 3)
+  const topLiv  = byLivreur.slice(0, 10)
   const topHubs = byHub.slice(0, 8)
-  const recentDays = [...byDay].slice(-10)
+  const recDays = [...byDay].slice(-10)
 
-  const livreurRows = topLivreurs
-    .map(
-      (l, i) => `<tr style="background:${i % 2 === 0 ? '#ffffff' : '#f8faff'};">
+  // ── Intro text block ───────────────────────────────────────────────
+  const introHTML = `
+    <tr><td style="padding:0 0 24px;">
+      <p style="font-size:15px;font-weight:700;color:#0f172a;font-family:Arial,sans-serif;margin:0 0 8px;">Bonjour,</p>
+      <p style="font-size:13px;color:#475569;font-family:Arial,sans-serif;margin:0 0 16px;line-height:1.6;">
+        Voici le résumé des performances de livraison${period ? ` <strong>pour la période ${period}</strong>` : ''}.
+      </p>
+
+      <!-- Quick KPI summary box -->
+      <table cellpadding="0" cellspacing="0" border="0" width="100%"
+        style="background:#f8faff;border-left:4px solid #2563eb;border-radius:0 8px 8px 0;margin-bottom:16px;">
+        <tr><td style="padding:14px 16px;">
+          <div style="font-size:12px;font-weight:700;color:#1e3a5f;font-family:Arial,sans-serif;margin-bottom:10px;text-transform:uppercase;letter-spacing:0.5px;">📊 KPIs Clés</div>
+          <table cellpadding="0" cellspacing="0" border="0" width="100%">
+            <tr>
+              <td width="50%" style="padding:3px 0;">
+                <span style="font-size:12px;color:#475569;font-family:Arial,sans-serif;">Taux de livraison</span>
+                <span style="font-size:12px;font-weight:700;color:${rateColor(summary.deliveryRate)};font-family:Arial,sans-serif;"> → ${fmtPct(summary.deliveryRate)}</span>
+              </td>
+              <td width="50%" style="padding:3px 0;">
+                <span style="font-size:12px;color:#475569;font-family:Arial,sans-serif;">Taux on-time</span>
+                <span style="font-size:12px;font-weight:700;color:${rateColor(summary.onTimeRate)};font-family:Arial,sans-serif;"> → ${fmtPct(summary.onTimeRate)}</span>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:3px 0;">
+                <span style="font-size:12px;color:#475569;font-family:Arial,sans-serif;">Total commandes</span>
+                <span style="font-size:12px;font-weight:700;color:#1d4ed8;font-family:Arial,sans-serif;"> → ${fmt(summary.totalOrders)}</span>
+              </td>
+              <td style="padding:3px 0;">
+                <span style="font-size:12px;color:#475569;font-family:Arial,sans-serif;">COD total</span>
+                <span style="font-size:12px;font-weight:700;color:#7c3aed;font-family:Arial,sans-serif;"> → ${fmtMAD(summary.totalCOD)}</span>
+              </td>
+            </tr>
+            ${timing ? `<tr>
+              <td style="padding:3px 0;" colspan="2">
+                <span style="font-size:12px;color:#475569;font-family:Arial,sans-serif;">Durée totale moy.</span>
+                <span style="font-size:12px;font-weight:700;color:#0891b2;font-family:Arial,sans-serif;"> → ${fmtMin(timing.totalDuration)}</span>
+              </td>
+            </tr>` : ''}
+          </table>
+        </td></tr>
+      </table>
+
+      ${top3.length > 0 ? `<!-- Top 3 livreurs box -->
+      <table cellpadding="0" cellspacing="0" border="0" width="100%"
+        style="background:#fefce8;border-left:4px solid #d97706;border-radius:0 8px 8px 0;margin-bottom:16px;">
+        <tr><td style="padding:14px 16px;">
+          <div style="font-size:12px;font-weight:700;color:#92400e;font-family:Arial,sans-serif;margin-bottom:10px;text-transform:uppercase;letter-spacing:0.5px;">🏆 Top 3 Livreurs</div>
+          <table cellpadding="0" cellspacing="0" border="0" width="100%">
+            ${top3.map((l, i) => `<tr>
+              <td style="padding:3px 0;font-size:12px;font-family:Arial,sans-serif;color:#0f172a;">
+                ${medals[i]} <strong>${l.name}</strong>
+                <span style="color:${rateColor(l.deliveryRate)};font-weight:700;"> ${l.deliveryRate.toFixed(0)} %</span>
+                <span style="color:#64748b;"> | </span>
+                <span style="color:#7c3aed;font-weight:600;">${fmtMAD(l.totalCOD)}</span>
+              </td>
+            </tr>`).join('')}
+          </table>
+        </td></tr>
+      </table>` : ''}
+
+      ${topHubs.length > 0 ? `<!-- Hubs box -->
+      <table cellpadding="0" cellspacing="0" border="0" width="100%"
+        style="background:#f0fdf4;border-left:4px solid #16a34a;border-radius:0 8px 8px 0;margin-bottom:8px;">
+        <tr><td style="padding:14px 16px;">
+          <div style="font-size:12px;font-weight:700;color:#14532d;font-family:Arial,sans-serif;margin-bottom:10px;text-transform:uppercase;letter-spacing:0.5px;">🏭 Performance par Hub</div>
+          <table cellpadding="0" cellspacing="0" border="0" width="100%">
+            ${topHubs.map(h => `<tr>
+              <td style="padding:3px 0;font-size:12px;font-family:Arial,sans-serif;color:#0f172a;">
+                ${rateEmoji(h.deliveryRate)} <strong>${h.hubName}</strong>
+                <span style="color:${rateColor(h.deliveryRate)};font-weight:700;"> — ${fmtPct(h.deliveryRate)}</span>
+                ${h.deliveryRate < 80 ? `<span style="color:#dc2626;font-size:10px;font-style:italic;"> → Action requise</span>` : ''}
+              </td>
+            </tr>`).join('')}
+          </table>
+        </td></tr>
+      </table>` : ''}
+
+      <p style="font-size:12px;color:#94a3b8;font-family:Arial,sans-serif;margin:12px 0 0;font-style:italic;">
+        Le rapport complet est joint en pièce jointe PDF.
+      </p>
+    </td></tr>
+
+    <!-- Divider before detailed section -->
+    <tr><td style="padding:0 0 8px;">
+      <div style="height:1px;background:#e2e8f0;"></div>
+      <div style="text-align:center;margin-top:-9px;">
+        <span style="background:#ffffff;padding:0 12px;font-size:11px;color:#94a3b8;font-family:Arial,sans-serif;text-transform:uppercase;letter-spacing:1px;">Rapport détaillé</span>
+      </div>
+    </td></tr>`
+
+  // ── Livreur rows ───────────────────────────────────────────────────
+  const livreurRows = topLiv.map((l, i) =>
+    `<tr style="background:${i % 2 === 0 ? '#ffffff' : '#f8faff'};">
       <td style="padding:9px 10px;font-size:12px;font-family:Arial;color:#1e3a5f;font-weight:700;">#${l.rank}</td>
       <td style="padding:9px 10px;font-size:12px;font-family:Arial;color:#0f172a;font-weight:500;">${l.name}</td>
       <td style="padding:9px 10px;font-size:12px;font-family:Arial;text-align:right;">${fmt(l.total)}</td>
@@ -127,12 +298,10 @@ export function buildEmailHTML(data: EmailKpisData): string {
       <td style="padding:9px 10px;font-size:12px;font-family:Arial;text-align:right;color:#475569;">${fmtMin(l.avgDuration)}</td>
       <td style="padding:9px 10px;font-size:12px;font-family:Arial;text-align:right;color:#7c3aed;font-weight:600;">${fmtMAD(l.totalCOD)}</td>
     </tr>`
-    )
-    .join('')
+  ).join('')
 
-  const hubRows = topHubs
-    .map(
-      (h, i) => `<tr style="background:${i % 2 === 0 ? '#ffffff' : '#f8faff'};">
+  const hubRows = topHubs.map((h, i) =>
+    `<tr style="background:${i % 2 === 0 ? '#ffffff' : '#f8faff'};">
       <td style="padding:9px 10px;font-size:12px;font-family:Arial;color:#0f172a;font-weight:500;">${h.hubName}</td>
       <td style="padding:9px 10px;font-size:12px;font-family:Arial;color:#64748b;">${h.hubCity || '—'}</td>
       <td style="padding:9px 10px;font-size:12px;font-family:Arial;text-align:right;">${fmt(h.total)}</td>
@@ -142,12 +311,10 @@ export function buildEmailHTML(data: EmailKpisData): string {
       <td style="padding:9px 10px;font-size:12px;font-family:Arial;text-align:right;color:#475569;">${fmtMin(h.avgDuration)}</td>
       <td style="padding:9px 10px;font-size:12px;font-family:Arial;text-align:right;color:#7c3aed;font-weight:600;">${fmtMAD(h.totalCOD)}</td>
     </tr>`
-    )
-    .join('')
+  ).join('')
 
-  const dayRows = recentDays
-    .map(
-      (d, i) => `<tr style="background:${i % 2 === 0 ? '#ffffff' : '#f8faff'};">
+  const dayRows = recDays.map((d, i) =>
+    `<tr style="background:${i % 2 === 0 ? '#ffffff' : '#f8faff'};">
       <td style="padding:9px 10px;font-size:12px;font-family:Arial;color:#0f172a;">${d.date}</td>
       <td style="padding:9px 10px;font-size:12px;font-family:Arial;text-align:right;">${fmt(d.total)}</td>
       <td style="padding:9px 10px;font-size:12px;font-family:Arial;color:#16a34a;text-align:right;font-weight:600;">${fmt(d.delivered)}</td>
@@ -157,88 +324,74 @@ export function buildEmailHTML(data: EmailKpisData): string {
       </td>
       <td style="padding:9px 10px;font-size:12px;font-family:Arial;text-align:right;color:#7c3aed;">${fmtMAD(d.totalCOD)}</td>
     </tr>`
-    )
-    .join('')
+  ).join('')
 
   return `<!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
-  <title>Rapport KPIs Livraisons — Shipinfy</title>
+  <title>Rapport Performance Livraison — Shipinfy</title>
 </head>
 <body style="margin:0;padding:0;background:#e2e8f0;font-family:Arial,sans-serif;">
 <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#e2e8f0;padding:28px 0;">
 <tr><td align="center">
 
-  <!-- Outer card -->
   <table cellpadding="0" cellspacing="0" border="0" width="620"
     style="background:#ffffff;border-radius:14px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.10);">
 
-    <!-- ─── HEADER ─── -->
-    <tr>
-      <td style="padding:0;">
-        <table cellpadding="0" cellspacing="0" border="0" width="100%">
-          <tr>
-            <td style="background:#1e3a5f;padding:28px 36px 24px;">
-              <table cellpadding="0" cellspacing="0" border="0" width="100%">
-                <tr>
-                  <td>
-                    <div style="font-size:24px;font-weight:900;color:#ffffff;font-family:Arial,sans-serif;letter-spacing:-0.5px;">
-                      📦 SHIPINFY
-                    </div>
-                    <div style="font-size:12px;color:#93c5fd;font-family:Arial,sans-serif;margin-top:3px;letter-spacing:0.5px;">
-                      RAPPORT KPIs — PERFORMANCES LIVRAISON
-                    </div>
-                  </td>
-                  <td align="right" style="vertical-align:middle;">
-                    <div style="background:#2563eb;border-radius:8px;padding:10px 16px;display:inline-block;">
-                      <div style="font-size:11px;color:#bfdbfe;font-family:Arial,sans-serif;text-transform:uppercase;letter-spacing:0.5px;">Généré le</div>
-                      <div style="font-size:15px;font-weight:700;color:#ffffff;font-family:Arial,sans-serif;margin-top:2px;">${date}</div>
-                    </div>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-          <!-- Blue accent bar -->
-          <tr>
-            <td style="height:4px;background:linear-gradient(90deg,#2563eb,#7c3aed,#2563eb);"></td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-
-    <!-- ─── BODY ─── -->
-    <tr><td style="padding:28px 36px;">
+    <!-- HEADER -->
+    <tr><td style="padding:0;">
       <table cellpadding="0" cellspacing="0" border="0" width="100%">
-
-        <!-- KPI CARDS — Row 1 -->
         <tr>
-          <td>
+          <td style="background:#1e3a5f;padding:28px 36px 24px;">
             <table cellpadding="0" cellspacing="0" border="0" width="100%">
               <tr>
-                ${kpiCard('📦', fmt(summary.totalOrders), 'Total commandes', '#1d4ed8')}
-                ${kpiCard('✅', fmtPct(summary.deliveryRate), 'Taux livraison', rateColor(summary.deliveryRate))}
-                ${kpiCard('⏱', fmtPct(summary.onTimeRate), 'On-Time', rateColor(summary.onTimeRate))}
-                ${kpiCard('💰', fmtMAD(summary.totalCOD), 'Total COD', '#7c3aed')}
-              </tr>
-              <tr>
-                ${kpiCard('✔️', fmt(summary.delivered), 'Livrées', '#16a34a')}
-                ${kpiCard('✕', fmt(summary.noShow), 'NO_SHOW', '#dc2626')}
-                ${kpiCard('📅', summary.avgOrdersPerDay.toFixed(0), 'Cmd / jour', '#0891b2')}
-                ${kpiCard('💵', fmtMAD(summary.totalCOD / Math.max(summary.delivered, 1)), 'Moy. COD/cmd', '#7c3aed')}
+                <td>
+                  <div style="font-size:24px;font-weight:900;color:#ffffff;font-family:Arial,sans-serif;letter-spacing:-0.5px;">📦 SHIPINFY</div>
+                  <div style="font-size:12px;color:#93c5fd;font-family:Arial,sans-serif;margin-top:3px;letter-spacing:0.5px;">RAPPORT PERFORMANCE LIVRAISON</div>
+                </td>
+                <td align="right" style="vertical-align:middle;">
+                  <div style="background:#2563eb;border-radius:8px;padding:10px 16px;display:inline-block;">
+                    <div style="font-size:11px;color:#bfdbfe;font-family:Arial,sans-serif;text-transform:uppercase;letter-spacing:0.5px;">Généré le</div>
+                    <div style="font-size:15px;font-weight:700;color:#ffffff;font-family:Arial,sans-serif;margin-top:2px;">${date}</div>
+                  </div>
+                </td>
               </tr>
             </table>
           </td>
         </tr>
+        <tr><td style="height:4px;background:linear-gradient(90deg,#2563eb,#7c3aed,#2563eb);"></td></tr>
+      </table>
+    </td></tr>
 
-        <!-- DIVIDER -->
+    <!-- BODY -->
+    <tr><td style="padding:28px 36px;">
+      <table cellpadding="0" cellspacing="0" border="0" width="100%">
+
+        ${introHTML}
+
+        <!-- KPI CARDS -->
+        <tr><td>
+          <table cellpadding="0" cellspacing="0" border="0" width="100%">
+            <tr>
+              ${kpiCard('📦', fmt(summary.totalOrders), 'Total commandes', '#1d4ed8')}
+              ${kpiCard('✅', fmtPct(summary.deliveryRate), 'Taux livraison', rateColor(summary.deliveryRate))}
+              ${kpiCard('⏱', fmtPct(summary.onTimeRate), 'On-Time', rateColor(summary.onTimeRate))}
+              ${kpiCard('💰', fmtMAD(summary.totalCOD), 'Total COD', '#7c3aed')}
+            </tr>
+            <tr>
+              ${kpiCard('✔️', fmt(summary.delivered), 'Livrées', '#16a34a')}
+              ${kpiCard('✕', fmt(summary.noShow), 'NO_SHOW', '#dc2626')}
+              ${kpiCard('📅', summary.avgOrdersPerDay.toFixed(0), 'Cmd / jour', '#0891b2')}
+              ${kpiCard('💵', fmtMAD(summary.totalCOD / Math.max(summary.delivered, 1)), 'Moy. COD/cmd', '#7c3aed')}
+            </tr>
+          </table>
+        </td></tr>
+
         <tr><td style="padding:8px 0;"><div style="height:1px;background:#e2e8f0;"></div></td></tr>
 
-        ${
-          timing
-            ? `<!-- PIPELINE -->
+        ${timing ? `
         ${sectionHeader('⏱ Pipeline des délais')}
         <tr><td style="padding-bottom:8px;">
           <table cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
@@ -251,13 +404,9 @@ export function buildEmailHTML(data: EmailKpisData): string {
             </tr>
           </table>
         </td></tr>
-        <tr><td style="padding:8px 0;"><div style="height:1px;background:#e2e8f0;"></div></td></tr>`
-            : ''
-        }
+        <tr><td style="padding:8px 0;"><div style="height:1px;background:#e2e8f0;"></div></td></tr>` : ''}
 
-        ${
-          topLivreurs.length > 0
-            ? `<!-- LIVREURS -->
+        ${topLiv.length > 0 ? `
         ${sectionHeader('🏆 Classement Livreurs')}
         <tr><td>
           <table cellpadding="0" cellspacing="0" border="0" width="100%"
@@ -265,22 +414,18 @@ export function buildEmailHTML(data: EmailKpisData): string {
             ${tableHeaderRow([
               { label: 'Rang' },
               { label: 'Livreur' },
-              { label: 'Total', align: 'right' },
+              { label: 'Total',    align: 'right' },
               { label: 'Livrées', align: 'right' },
-              { label: 'Taux', align: 'right' },
-              { label: 'Durée moy.', align: 'right' },
-              { label: 'COD Total', align: 'right' },
+              { label: 'Taux',    align: 'right' },
+              { label: 'Durée',   align: 'right' },
+              { label: 'COD',     align: 'right' },
             ])}
             ${livreurRows}
           </table>
         </td></tr>
-        <tr><td style="padding:8px 0;"><div style="height:1px;background:#e2e8f0;"></div></td></tr>`
-            : ''
-        }
+        <tr><td style="padding:8px 0;"><div style="height:1px;background:#e2e8f0;"></div></td></tr>` : ''}
 
-        ${
-          topHubs.length > 0
-            ? `<!-- HUBS -->
+        ${topHubs.length > 0 ? `
         ${sectionHeader('🏭 Performance par Hub')}
         <tr><td>
           <table cellpadding="0" cellspacing="0" border="0" width="100%"
@@ -288,38 +433,32 @@ export function buildEmailHTML(data: EmailKpisData): string {
             ${tableHeaderRow([
               { label: 'Hub' },
               { label: 'Ville' },
-              { label: 'Total', align: 'right' },
-              { label: 'Taux livraison', align: 'right' },
-              { label: 'Durée moy.', align: 'right' },
-              { label: 'COD Total', align: 'right' },
+              { label: 'Total',    align: 'right' },
+              { label: 'Taux',     align: 'right' },
+              { label: 'Durée',    align: 'right' },
+              { label: 'COD',      align: 'right' },
             ])}
             ${hubRows}
           </table>
         </td></tr>
-        <tr><td style="padding:8px 0;"><div style="height:1px;background:#e2e8f0;"></div></td></tr>`
-            : ''
-        }
+        <tr><td style="padding:8px 0;"><div style="height:1px;background:#e2e8f0;"></div></td></tr>` : ''}
 
-        ${
-          recentDays.length > 0
-            ? `<!-- DAILY -->
+        ${recDays.length > 0 ? `
         ${sectionHeader('📅 Tendance journalière')}
         <tr><td>
           <table cellpadding="0" cellspacing="0" border="0" width="100%"
             style="border-radius:8px;overflow:hidden;border:1px solid #e2e8f0;">
             ${tableHeaderRow([
               { label: 'Date' },
-              { label: 'Total', align: 'right' },
+              { label: 'Total',    align: 'right' },
               { label: 'Livrées', align: 'right' },
               { label: 'NO_SHOW', align: 'right' },
-              { label: 'Taux', align: 'right' },
-              { label: 'COD', align: 'right' },
+              { label: 'Taux',    align: 'right' },
+              { label: 'COD',     align: 'right' },
             ])}
             ${dayRows}
           </table>
-        </td></tr>`
-            : ''
-        }
+        </td></tr>` : ''}
 
         <!-- CTA BUTTON -->
         <tr><td style="padding:28px 0 16px;text-align:center;">
@@ -341,18 +480,15 @@ export function buildEmailHTML(data: EmailKpisData): string {
 
       </table>
     </td></tr>
-
   </table>
 
-  <!-- Bottom footer -->
+  <!-- Bottom -->
   <table cellpadding="0" cellspacing="0" border="0" width="620" style="margin-top:14px;">
-    <tr>
-      <td style="text-align:center;">
-        <p style="font-size:10px;color:#94a3b8;font-family:Arial,sans-serif;margin:0;">
-          © ${new Date().getFullYear()} Shipinfy · Gestion des livraisons · shipinfy.mediflows.shop
-        </p>
-      </td>
-    </tr>
+    <tr><td style="text-align:center;">
+      <p style="font-size:10px;color:#94a3b8;font-family:Arial,sans-serif;margin:0;">
+        © ${new Date().getFullYear()} Shipinfy · Gestion des livraisons · shipinfy.mediflows.shop
+      </p>
+    </td></tr>
   </table>
 
 </td></tr>

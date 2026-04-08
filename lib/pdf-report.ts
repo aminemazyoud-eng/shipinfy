@@ -4,8 +4,9 @@ type PDFKit = typeof import('pdfkit')
 type PDFDocument = InstanceType<PDFKit>
 
 // ─── Formatters (regex-based — never toLocaleString, Node locale varies) ───
+// Use regular space: pdfkit does not support \u202F (renders as /)
 const fmt    = (n: number): string =>
-  Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '\u202F')
+  Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
 const fmtPct = (n: number): string => `${n.toFixed(1)} %`
 const fmtMAD = (n: number): string => `${fmt(n)} MAD`
 const fmtMin = (n: number): string => {

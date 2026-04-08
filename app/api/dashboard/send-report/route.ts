@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { transporter } from '@/lib/mailer'
-import { buildEmailHTML, buildEmailText, type EmailKpisData } from '@/lib/email-template'
+import { buildEmailText, type EmailKpisData } from '@/lib/email-template'
 import { generateReportPDF } from '@/lib/pdf-report'
 
 export const runtime = 'nodejs'
@@ -100,7 +100,6 @@ export async function POST(request: Request) {
       generatedAt,
     }
 
-    const htmlContent = buildEmailHTML(emailData)
     const textContent = buildEmailText(emailData)
     const pdfBuffer   = await generateReportPDF(emailData)
 
@@ -115,7 +114,6 @@ export async function POST(request: Request) {
       to:      emails.join(', '),
       subject,
       text:    textContent,
-      html:    htmlContent,
       attachments: [
         {
           filename:    `rapport-livraisons-${dateStr}.pdf`,

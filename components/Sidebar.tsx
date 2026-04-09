@@ -1,14 +1,13 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Database, FileText, Clock, BarChart3 } from 'lucide-react'
+import { LayoutDashboard, Database, FileText, Clock } from 'lucide-react'
 
 const navItems = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/database', label: 'Base de données', icon: Database },
   { href: '/generateur', label: 'Générateur CSV', icon: FileText },
   { href: '/historique', label: 'Historique', icon: Clock },
-  { href: '/dashboard', label: 'KPIs & Métriques', icon: BarChart3 },
 ]
 
 export default function Sidebar() {
